@@ -57,6 +57,25 @@ type Meta = {
 const DEFAULT_BGM_BEFORE_URL = '/bgm/before.wav';
 const DEFAULT_BGM_AFTER_URL = '/bgm/after.wav';
 
+// Chromium レンダーは1動画あたり1〜2GBメモリを使うため、同時実行数を制限する。
+// キュー（BullMQ）導入前の暫定セーフティ。
+const MAX_CONCURRENT_RENDERS = 2;
+let activeRenders = 0;
+const renderWaiters: Array<() => void> = [];
+
+async function acquireRenderSlot(): Promise<void> {
+  while (activeRenders >= MAX_CONCURRENT_RENDERS) {
+    await new Promise<void>((resolve) => renderWaiters.push(resolve));
+  }
+  activeRenders++;
+}
+
+function releaseRenderSlot(): void {
+  activeRenders--;
+  const next = renderWaiters.shift();
+  if (next) next();
+}
+
 let cachedServeUrl: string | null = null;
 
 async function getServeUrl(): Promise<string> {
@@ -115,6 +134,7 @@ export async function POST(req: NextRequest) {
   const cleanupPaths: string[] = [];
   const origin = req.nextUrl.origin;
 
+  await acquireRenderSlot();
   try {
     const formData = await req.formData();
     const metaRaw = formData.get('meta');
@@ -227,5 +247,6 @@ export async function POST(req: NextRequest) {
     await Promise.allSettled(
       cleanupPaths.map((p) => fs.unlink(p).catch(() => undefined))
     );
+    releaseRenderSlot();
   }
 }
