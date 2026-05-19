@@ -1,6 +1,8 @@
 import {
   AbsoluteFill,
+  Audio,
   Img,
+  OffthreadVideo,
   spring,
   useCurrentFrame,
   useVideoConfig,
@@ -8,95 +10,113 @@ import {
   Sequence,
 } from 'remotion';
 import { fontPairs, type FontPairId } from '../fonts/loadFonts';
+import {
+  AFTER_SLOT_SEC,
+  BEFORE_SLOT_SEC,
+  BGM_BASE_VOLUME,
+  BGM_FADE_IN_SEC,
+  BGM_FADE_OUT_SEC,
+  COUNTDOWN_SEC,
+  CTA_SEC,
+  FPS,
+  HOOK_SEC,
+  INFO_SEC,
+  resolveSceneSeconds,
+  type MediaInput,
+} from '../lib/timing';
+
+export type { MediaInput } from '../lib/timing';
+export { computeTotalFrames, resolveSceneSeconds } from '../lib/timing';
 
 export type BeforeAfterStoryProps = {
   hookText: string;
-  beforeImageUrl: string;
-  afterImageUrl: string;
+  beforeMedia: MediaInput;
+  afterMedia: MediaInput;
   menuName: string;
   price?: string;
   duration?: string;
   salonName: string;
   fontPairId: FontPairId;
-};
-
-const FPS = 30;
-
-const FRAMES = {
-  HOOK_IN: 0,
-  HOOK_OUT: 60,
-  BEFORE_IN: 60,
-  BEFORE_OUT: 180,
-  COUNT_3: 180,
-  COUNT_2: 210,
-  COUNT_1: 240,
-  AFTER_IN: 270,
-  AFTER_OUT: 450,
-  INFO_IN: 450,
-  INFO_OUT: 510,
-  CTA_IN: 510,
-  END: 540,
+  bgmBeforeUrl?: string;
+  bgmAfterUrl?: string;
 };
 
 export const BeforeAfterStory: React.FC<BeforeAfterStoryProps> = ({
   hookText,
-  beforeImageUrl,
-  afterImageUrl,
+  beforeMedia,
+  afterMedia,
   menuName,
   price,
   duration,
   salonName,
   fontPairId,
+  bgmBeforeUrl,
+  bgmAfterUrl,
 }) => {
   const fonts = fontPairs[fontPairId];
 
+  const beforeSec = resolveSceneSeconds(beforeMedia, BEFORE_SLOT_SEC);
+  const afterSec = resolveSceneSeconds(afterMedia, AFTER_SLOT_SEC);
+
+  const hookOut = HOOK_SEC * FPS;
+  const beforeIn = hookOut;
+  const beforeOut = beforeIn + beforeSec * FPS;
+  const count3 = beforeOut;
+  const count2 = count3 + FPS;
+  const count1 = count2 + FPS;
+  const afterIn = count3 + COUNTDOWN_SEC * FPS;
+  const afterOut = afterIn + afterSec * FPS;
+  const infoIn = afterOut;
+  const infoOut = infoIn + INFO_SEC * FPS;
+  const ctaIn = infoOut;
+  const ctaOut = ctaIn + CTA_SEC * FPS;
+
   return (
     <AbsoluteFill style={{ backgroundColor: '#0a0a0a' }}>
-      <Sequence from={FRAMES.HOOK_IN} durationInFrames={FRAMES.HOOK_OUT - FRAMES.HOOK_IN}>
+      {bgmBeforeUrl && (
+        <Sequence from={beforeIn} durationInFrames={beforeOut - beforeIn}>
+          <BgmTrack url={bgmBeforeUrl} durationFrames={beforeOut - beforeIn} />
+        </Sequence>
+      )}
+      {bgmAfterUrl && (
+        <Sequence from={afterIn} durationInFrames={ctaOut - afterIn}>
+          <BgmTrack url={bgmAfterUrl} durationFrames={ctaOut - afterIn} />
+        </Sequence>
+      )}
+
+      <Sequence from={0} durationInFrames={hookOut}>
         <HookScene text={hookText} fonts={fonts} />
       </Sequence>
 
-      <Sequence
-        from={FRAMES.BEFORE_IN}
-        durationInFrames={FRAMES.BEFORE_OUT - FRAMES.BEFORE_IN}
-      >
-        <PhotoScene imageUrl={beforeImageUrl} label="BEFORE" fonts={fonts} />
+      <Sequence from={beforeIn} durationInFrames={beforeOut - beforeIn}>
+        <MediaScene media={beforeMedia} label="BEFORE" fonts={fonts} />
       </Sequence>
 
-      <Sequence from={FRAMES.COUNT_3} durationInFrames={30}>
+      <Sequence from={count3} durationInFrames={FPS}>
         <CountdownNumber digit={3} fonts={fonts} />
       </Sequence>
-      <Sequence from={FRAMES.COUNT_2} durationInFrames={30}>
+      <Sequence from={count2} durationInFrames={FPS}>
         <CountdownNumber digit={2} fonts={fonts} />
       </Sequence>
-      <Sequence from={FRAMES.COUNT_1} durationInFrames={30}>
+      <Sequence from={count1} durationInFrames={FPS}>
         <CountdownNumber digit={1} fonts={fonts} />
       </Sequence>
 
-      <Sequence
-        from={FRAMES.AFTER_IN}
-        durationInFrames={FRAMES.AFTER_OUT - FRAMES.AFTER_IN}
-      >
-        <PhotoScene imageUrl={afterImageUrl} label="AFTER" fonts={fonts} dramatic />
+      <Sequence from={afterIn} durationInFrames={afterOut - afterIn}>
+        <MediaScene media={afterMedia} label="AFTER" fonts={fonts} dramatic />
       </Sequence>
 
-      <Sequence
-        from={FRAMES.INFO_IN}
-        durationInFrames={FRAMES.INFO_OUT - FRAMES.INFO_IN}
-      >
+      <Sequence from={infoIn} durationInFrames={infoOut - infoIn}>
         <InfoCard
           menuName={menuName}
           price={price}
           duration={duration}
-          afterImageUrl={afterImageUrl}
+          afterMedia={afterMedia}
           fonts={fonts}
         />
       </Sequence>
 
-      <Sequence
-        from={FRAMES.CTA_IN}
-        durationInFrames={FRAMES.END - FRAMES.CTA_IN}
-      >
+      <Sequence from={ctaIn} durationInFrames={ctaOut - ctaIn}>
         <SaveCta salonName={salonName} fonts={fonts} />
       </Sequence>
     </AbsoluteFill>
@@ -104,6 +124,28 @@ export const BeforeAfterStory: React.FC<BeforeAfterStoryProps> = ({
 };
 
 type Fonts = (typeof fontPairs)[FontPairId];
+
+const BgmTrack: React.FC<{ url: string; durationFrames: number }> = ({
+  url,
+  durationFrames,
+}) => {
+  const fadeInFrames = Math.round(BGM_FADE_IN_SEC * FPS);
+  const fadeOutFrames = Math.round(BGM_FADE_OUT_SEC * FPS);
+  const volumeFn = (frame: number) => {
+    const fadeIn = interpolate(frame, [0, fadeInFrames], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+    const fadeOut = interpolate(
+      frame,
+      [durationFrames - fadeOutFrames, durationFrames],
+      [1, 0],
+      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
+    );
+    return Math.min(fadeIn, fadeOut) * BGM_BASE_VOLUME;
+  };
+  return <Audio src={url} volume={volumeFn} loop />;
+};
 
 const HookScene: React.FC<{ text: string; fonts: Fonts }> = ({ text, fonts }) => {
   const frame = useCurrentFrame();
@@ -142,16 +184,43 @@ const HookScene: React.FC<{ text: string; fonts: Fonts }> = ({ text, fonts }) =>
   );
 };
 
-const PhotoScene: React.FC<{
-  imageUrl: string;
+const MediaLayer: React.FC<{ media: MediaInput; scale: number }> = ({
+  media,
+  scale,
+}) => {
+  if (media.type === 'video') {
+    const startFrom = Math.round((media.startSec ?? 0) * FPS);
+    return (
+      <AbsoluteFill style={{ transform: `scale(${scale})` }}>
+        <OffthreadVideo
+          src={media.url}
+          startFrom={startFrom}
+          muted
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      </AbsoluteFill>
+    );
+  }
+  return (
+    <AbsoluteFill style={{ transform: `scale(${scale})` }}>
+      <Img
+        src={media.url}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      />
+    </AbsoluteFill>
+  );
+};
+
+const MediaScene: React.FC<{
+  media: MediaInput;
   label: string;
   fonts: Fonts;
   dramatic?: boolean;
-}> = ({ imageUrl, label, fonts, dramatic }) => {
+}> = ({ media, label, fonts, dramatic }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
 
-  const scaleStart = dramatic ? 1.0 : 1.0;
+  const scaleStart = 1.0;
   const scaleEnd = dramatic ? 1.12 : 1.06;
   const scale = interpolate(
     frame,
@@ -171,18 +240,16 @@ const PhotoScene: React.FC<{
   );
   const opacity = Math.min(fadeIn, fadeOut);
 
-  const labelOpacity = interpolate(frame, [12, 30, durationInFrames - 18, durationInFrames - 6], [0, 1, 1, 0], {
-    extrapolateRight: 'clamp',
-  });
+  const labelOpacity = interpolate(
+    frame,
+    [12, 30, durationInFrames - 18, durationInFrames - 6],
+    [0, 1, 1, 0],
+    { extrapolateRight: 'clamp' }
+  );
 
   return (
     <AbsoluteFill style={{ opacity }}>
-      <AbsoluteFill style={{ transform: `scale(${scale})` }}>
-        <Img
-          src={imageUrl}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      </AbsoluteFill>
+      <MediaLayer media={media} scale={scale} />
       <AbsoluteFill
         style={{
           background:
@@ -209,7 +276,10 @@ const PhotoScene: React.FC<{
   );
 };
 
-const CountdownNumber: React.FC<{ digit: number; fonts: Fonts }> = ({ digit, fonts }) => {
+const CountdownNumber: React.FC<{ digit: number; fonts: Fonts }> = ({
+  digit,
+  fonts,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -253,9 +323,9 @@ const InfoCard: React.FC<{
   menuName: string;
   price?: string;
   duration?: string;
-  afterImageUrl: string;
+  afterMedia: MediaInput;
   fonts: Fonts;
-}> = ({ menuName, price, duration, afterImageUrl, fonts }) => {
+}> = ({ menuName, price, duration, afterMedia, fonts }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -271,12 +341,16 @@ const InfoCard: React.FC<{
 
   return (
     <AbsoluteFill>
-      <AbsoluteFill style={{ transform: 'scale(1.05)' }}>
-        <Img
-          src={afterImageUrl}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      </AbsoluteFill>
+      {afterMedia.type === 'image' ? (
+        <AbsoluteFill style={{ transform: 'scale(1.05)' }}>
+          <Img
+            src={afterMedia.url}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        </AbsoluteFill>
+      ) : (
+        <AbsoluteFill style={{ backgroundColor: '#0a0a0a' }} />
+      )}
       <AbsoluteFill
         style={{ backgroundColor: 'rgba(10,10,10,0.55)', backdropFilter: 'blur(4px)' }}
       />
@@ -377,14 +451,18 @@ const SaveCta: React.FC<{ salonName: string; fonts: Fonts }> = ({
     fps,
     config: { damping: 14, stiffness: 160 },
   });
-  const scale = interpolate(popIn, [0, 1], [0.8, 1]);
+  const scale = interpolate(popIn, [0, 1], [0.85, 1]);
 
+  const fadeIn = interpolate(frame, [0, 12], [0, 1], {
+    extrapolateRight: 'clamp',
+  });
   const fadeOut = interpolate(
     frame,
-    [durationInFrames - 10, durationInFrames],
+    [durationInFrames - 12, durationInFrames],
     [1, 0],
     { extrapolateLeft: 'clamp' }
   );
+  const opacity = Math.min(fadeIn, fadeOut);
 
   return (
     <AbsoluteFill
@@ -392,38 +470,21 @@ const SaveCta: React.FC<{ salonName: string; fonts: Fonts }> = ({
         backgroundColor: '#0a0a0a',
         justifyContent: 'center',
         alignItems: 'center',
-        opacity: fadeOut,
+        opacity,
       }}
     >
-      <div style={{ textAlign: 'center', transform: `scale(${scale})` }}>
-        <div
-          style={{
-            display: 'inline-block',
-            padding: '20px 56px',
-            border: '2px solid #fff',
-            borderRadius: 999,
-            color: '#fff',
-            fontSize: 44,
-            fontFamily: fonts.japanese,
-            fontWeight: 500,
-            letterSpacing: '0.1em',
-            marginBottom: 56,
-          }}
-        >
-          保存推奨
-        </div>
-        <div
-          style={{
-            color: '#fff',
-            fontSize: 40,
-            fontFamily: fonts.english,
-            letterSpacing: '0.3em',
-            opacity: 0.85,
-            fontWeight: 400,
-          }}
-        >
-          {salonName}
-        </div>
+      <div
+        style={{
+          color: '#fff',
+          fontSize: 64,
+          fontFamily: fonts.english,
+          letterSpacing: '0.32em',
+          fontWeight: 400,
+          textAlign: 'center',
+          transform: `scale(${scale})`,
+        }}
+      >
+        {salonName}
       </div>
     </AbsoluteFill>
   );
