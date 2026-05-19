@@ -9,10 +9,13 @@ import {
 } from '../remotion/templates/BeforeAfterStory';
 import type { FontPairId } from '../remotion/fonts/loadFonts';
 
-const DEFAULT_BEFORE_URL = '/samples/before.png';
-const DEFAULT_AFTER_URL = '/samples/after.png';
-const DEFAULT_BGM_BEFORE_URL = '/bgm/before.wav';
-const DEFAULT_BGM_AFTER_URL = '/bgm/after.wav';
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+const asset = (p: string) => `${BASE_PATH}${p}`;
+
+const DEFAULT_BEFORE_URL = asset('/samples/before.png');
+const DEFAULT_AFTER_URL = asset('/samples/after.png');
+const DEFAULT_BGM_BEFORE_URL = asset('/bgm/before.wav');
+const DEFAULT_BGM_AFTER_URL = asset('/bgm/after.wav');
 const DEFAULT_BGM_BEFORE_LABEL = 'before.wav（デフォルト）';
 const DEFAULT_BGM_AFTER_LABEL = 'after.wav（デフォルト）';
 const IS_STATIC_BUILD = process.env.NEXT_PUBLIC_STATIC_EXPORT === 'true';
